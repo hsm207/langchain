@@ -1,7 +1,7 @@
 """Chain that interprets a prompt and executes bash code to perform bash operations."""
 import logging
 import re
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 from pydantic import Extra, Field
 
@@ -55,8 +55,8 @@ class LLMBashChain(Chain):
     input_key: str = "question"  #: :meta private:
     output_key: str = "answer"  #: :meta private:
     prompt: BasePromptTemplate = PROMPT
-    persistent: bool = False
     output_parser: BaseOutputParser = Field(default_factory=BashOutputParser)
+    bash_process: BashProcess = Field(default_factory=BashProcess)  #: :meta private:
 
     class Config:
         """Configuration for this pydantic object."""
@@ -82,7 +82,7 @@ class LLMBashChain(Chain):
 
     def _call(self, inputs: Dict[str, str]) -> Dict[str, str]:
         llm_executor = LLMChain(prompt=self.prompt, llm=self.llm)
-        bash_executor = BashProcess(persistent=self.persistent)
+
         self.callback_manager.on_text(inputs[self.input_key], verbose=self.verbose)
 
         t = llm_executor.predict(question=inputs[self.input_key])
@@ -101,7 +101,7 @@ class LLMBashChain(Chain):
                 str(command_list), color="yellow", verbose=self.verbose
             )
 
-        output = bash_executor.run(command_list)
+        output = self.bash_process.run(command_list)
 
         self.callback_manager.on_text("\nAnswer: ", verbose=self.verbose)
         self.callback_manager.on_text(output, color="yellow", verbose=self.verbose)
@@ -110,3 +110,13 @@ class LLMBashChain(Chain):
     @property
     def _chain_type(self) -> str:
         return "llm_bash_chain"
+
+    @classmethod
+    def from_bash_process(
+        cls,
+        bash_process: BashProcess,
+        llm: BaseLanguageModel,
+        **kwargs: Any,
+    ) -> "LLMBashChain":
+        """Create a LLMBashChain from a BashProcess."""
+        return cls(llm=llm, bash_process=bash_process, **kwargs)
